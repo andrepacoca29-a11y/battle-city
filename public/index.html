@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Battle City Multiplayer</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ── LOBBY ───────────────────────────────────────────────────────────── -->
+  <div id="screen-lobby" class="screen lobby-screen">
+    <div class="lobby-bg"></div>
+    <div class="lobby-content">
+      <div class="logo-wrap">
+        <div class="logo-tank left">🔴</div>
+        <h1 class="logo">BATTLE<br><span>CITY</span></h1>
+        <div class="logo-tank right">🟡</div>
+      </div>
+      <p class="tagline">MULTIPLAYER — ATÉ 6 JOGADORES</p>
+
+      <div class="card">
+        <button id="btn-create" class="btn btn-primary">
+          ➕ CRIAR SALA
+        </button>
+        <div class="divider"><span>OU</span></div>
+        <div class="join-row">
+          <input id="room-input" class="room-input" type="text"
+                 maxlength="4" placeholder="CÓDIGO" spellcheck="false" autocomplete="off" />
+          <button id="btn-join" class="btn btn-secondary">ENTRAR</button>
+        </div>
+        <p id="error-msg" class="error-msg"></p>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><kbd>WASD</kbd> / <kbd>↑↓←→</kbd> mover</div>
+        <div class="legend-item"><kbd>SPACE</kbd> atirar</div>
+        <div class="legend-item">🛡 Escudo &nbsp; ❤ Reparo &nbsp; ⚡ +Balas</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── GAME ────────────────────────────────────────────────────────────── -->
+  <div id="screen-game" class="screen game-screen" style="display:none">
+    <div class="game-header">
+      <span class="game-logo">🎮 BATTLE CITY</span>
+      <span class="room-label">SALA: <strong id="room-code">----</strong></span>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- Mobile Controls -->
+    <div class="mobile-controls">
+      <div class="dpad">
+        <button class="dpad-btn dpad-up"    data-key="ArrowUp">▲</button>
+        <button class="dpad-btn dpad-left"  data-key="ArrowLeft">◀</button>
+        <button class="dpad-btn dpad-right" data-key="ArrowRight">▶</button>
+        <button class="dpad-btn dpad-down"  data-key="ArrowDown">▼</button>
+      </div>
+      <button class="fire-btn" data-key=" ">🔥</button>
+    </div>
+  </div>
+
+  <!-- ── OVERLAY (round over) ────────────────────────────────────────────── -->
+  <div id="screen-overlay" class="screen overlay-screen" style="display:none">
+    <div class="overlay-box">
+      <p class="overlay-msg">🏆 VOCÊ VENCEU!</p>
+      <p class="overlay-cd">Próxima rodada em 5s</p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

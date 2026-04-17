@@ -1,0 +1,26 @@
+# fly.toml — Fly.io config para Battle City (região gru = São Paulo)
+app = "battle-city-mp"          # ← mude para o nome do seu app no Fly.io
+primary_region = "gru"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  PORT     = "8080"
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type       = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus     = 1
