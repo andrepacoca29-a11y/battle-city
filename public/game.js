@@ -1,7 +1,90 @@
 'use strict';
 // ─── game.js ─ Client-side rendering + interpolation + input ─────────────────
 
-const socket = io({ transports: ['websocket'] });
+let socket = null;
+
+function initSocket() {
+  if (socket) return; // Já inicializado
+  
+  socket = io({
+    transports: ['websocket'],
+    auth: {
+      token: currentToken,
+    },
+  });
+
+  // Setup socket event listeners
+  setupSocketListeners();
+}
+
+function setupSocketListeners() {
+  socket.on('state', (state) => {
+    snapA = snapB;
+    snapB = { time: Date.now(), state };
+  });
+
+  socket.on('tileDestroyed', ({ row, col }) => {
+    if (map && map[row]) {
+      map[row][col] = 0;
+    }
+  });
+
+  socket.on('roundOver', ({ winnerId, players }) => {
+    gameRunning = false;
+    const ranking = rankPlayers(players, winnerId);
+    
+    // Encontrar meus dados no array de players
+    const myPlayerData = players.find(p => p.id === myId);
+    if (myPlayerData) {
+      myMatchData.kills = myPlayerData.kills || 0;
+      myMatchData.deaths = myPlayerData.deaths || 0;
+      myMatchData.score = myPlayerData.score || 0;
+    }
+    
+    myMatchData.survived = true;
+    myMatchData.won = winnerId === myId;
+    myMatchData.position = ranking.findIndex(p => p.id === myId) + 1;
+    
+    const scoreboard = {
+      winnerId,
+      players: ranking.map(p => ({
+        id: p.id,
+        username: currentUsername && p.id === myId ? currentUsername : `Player_${p.color}`,
+        score: p.score || 0,
+        kills: p.kills || 0,
+        deaths: p.deaths || 0,
+        position: ranking.indexOf(p) + 1,
+      })),
+    };
+
+    setTimeout(() => showScoreboard(scoreboard), 500);
+  });
+
+  socket.on('roundReset', ({ map: newMap }) => {
+    map = newMap;
+    myMatchData = { kills: 0, deaths: 0, score: 0, position: 0, won: false, survivalTime: Date.now() };
+    hideOverlay();
+  });
+
+  // Error handlers
+  socket.on('connect_error', (err) => {
+    console.error('Socket connection error:', err);
+    showErrorLobby('Erro ao conectar: ' + err.message);
+  });
+
+  socket.on('error', (err) => {
+    console.error('Socket error:', err);
+    showErrorLobby('Erro no socket: ' + err);
+  });
+
+  socket.on('connect', () => {
+    console.log('✓ Socket conectado com ID:', socket.id);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('✗ Socket desconectado');
+  });
+}
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const TILE       = 32;
@@ -18,6 +101,7 @@ let myColor   = null;
 let roomId    = null;
 let map       = null;
 let gameRunning = false;
+let myMatchData = null; // Armazena dados da partida do jogador
 
 // Snapshot ring buffer for interpolation
 let snapA = null, snapB = null;
@@ -42,26 +126,26 @@ const screens = {
   lobby:   document.getElementById('screen-lobby'),
   game:    document.getElementById('screen-game'),
   overlay: document.getElementById('screen-overlay'),
+  scoreboard: document.getElementById('screen-scoreboard'),
 };
 
 function showScreen(name) {
   for (const [k, el] of Object.entries(screens)) el.style.display = k === name ? 'flex' : 'none';
 }
-showScreen('lobby');
 
 // ─── Lobby Logic ─────────────────────────────────────────────────────────────
 document.getElementById('btn-create').addEventListener('click', () => {
   socket.emit('createRoom', {}, (res) => {
-    if (!res.ok) return showError(res.error);
+    if (!res.ok) return showErrorLobby(res.error);
     initGame(res);
   });
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
   const code = document.getElementById('room-input').value.trim().toUpperCase();
-  if (code.length !== 4) return showError('Digite um código de 4 letras');
+  if (code.length !== 4) return showErrorLobby('Digite um código de 4 letras');
   socket.emit('joinRoom', { roomId: code }, (res) => {
-    if (!res.ok) return showError(res.error);
+    if (!res.ok) return showErrorLobby(res.error);
     initGame(res);
   });
 });
@@ -70,13 +154,6 @@ document.getElementById('room-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btn-join').click();
 });
 
-function showError(msg) {
-  const el = document.getElementById('error-msg');
-  el.textContent = msg;
-  el.style.opacity = 1;
-  setTimeout(() => { el.style.opacity = 0; }, 3000);
-}
-
 // ─── Game Init ────────────────────────────────────────────────────────────────
 function initGame(res) {
   myId    = res.playerId;
@@ -84,38 +161,44 @@ function initGame(res) {
   roomId  = res.roomId;
   map     = res.map;
   gameRunning = true;
+  myMatchData = { kills: 0, deaths: 0, score: 0, position: 0, won: false, survivalTime: Date.now() };
   document.getElementById('room-code').textContent = res.roomId;
   showScreen('game');
+  enableGameControls();
   startInputLoop();
   requestAnimationFrame(renderLoop);
 }
 
-// ─── Socket Events ────────────────────────────────────────────────────────────
-socket.on('state', (state) => {
-  snapA = snapB;
-  snapB = { time: Date.now(), state };
-});
-
-socket.on('tileDestroyed', ({ row, col }) => {
-  // Apaga o tijolo visualmente do mapa local
-  if (map && map[row]) {
-    map[row][col] = 0;
-  }
-});
-
-socket.on('roundOver', ({ winnerId }) => {
-  const msg = winnerId === myId ? '🏆 VOCÊ VENCEU!' : '💥 Derrota...';
-  showOverlay(msg, 5);
-});
-
-socket.on('roundReset', ({ map: newMap }) => {
-  map = newMap;
-  hideOverlay();
-});
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function rankPlayers(players, winnerId) {
+  // Rankear por kills, depois por deaths
+  return [...players].sort((a, b) => {
+    if (b.kills !== a.kills) return b.kills - a.kills;
+    return a.deaths - b.deaths;
+  });
+}
 
 // ─── Input ────────────────────────────────────────────────────────────────────
-window.addEventListener('keydown', (e) => { if (e.key in keys) { keys[e.key] = true; e.preventDefault(); } });
-window.addEventListener('keyup',   (e) => { if (e.key in keys) keys[e.key] = false; });
+// Handlers de teclado que serão adicionados/removidos
+const keydownHandler = (e) => { 
+  if (e.key in keys) { 
+    keys[e.key] = true; 
+    e.preventDefault(); 
+  } 
+};
+const keyupHandler = (e) => { 
+  if (e.key in keys) keys[e.key] = false; 
+};
+
+function enableGameControls() {
+  window.addEventListener('keydown', keydownHandler);
+  window.addEventListener('keyup', keyupHandler);
+}
+
+function disableGameControls() {
+  window.removeEventListener('keydown', keydownHandler);
+  window.removeEventListener('keyup', keyupHandler);
+}
 
 // Mobile controls
 document.querySelectorAll('[data-key]').forEach(btn => {
