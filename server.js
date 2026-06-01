@@ -4,6 +4,9 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const cors = require('cors');
+const db = require('./db');
+const auth = require('./auth');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,7 +16,16 @@ const io = new Server(server, {
   pingTimeout: 10000,
 });
 
+// Middleware
+app.use(cors());
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Inicializar banco de dados
+db.initDB().catch(err => {
+  console.error('Erro ao inicializar DB:', err);
+  process.exit(1);
+});
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TICK_RATE        = 30;          // server ticks per second
@@ -142,11 +154,13 @@ class RoomState {
     clearTimeout(this.powerupTimer);
   }
 
-  addPlayer(socketId) {
+  addPlayer(socketId, userId, username) {
     const idx   = this.players.size % MAX_PLAYERS;
     const spawn = SPAWNS[idx];
     const p = {
       id:         socketId,
+      userId:     userId,
+      username:   username,
       x:          spawn.x,
       y:          spawn.y,
       dir:        spawn.dir,
@@ -163,6 +177,8 @@ class RoomState {
       inputs:     { up:false, down:false, left:false, right:false, fire:false },
       fireCooldown: 0,
       spawnProtection: 120,  // ticks
+      kills:      0,
+      deaths:     0,
     };
     this.players.set(socketId, p);
     return p;
@@ -382,11 +398,61 @@ class RoomState {
   }
 
   onPlayerDeath(player, killerId) {
+    player.deaths++;
+    const killer = this.players.get(killerId);
+    if (killer && killer !== player) {
+      killer.kills++;
+    }
+    
     const alive = [...this.players.values()].filter(p => p.alive && !p.disconnected);
     if (alive.length <= 1 && !this.roundOver) {
       this.roundOver = true;
       const winner = alive[0] || null;
-      io.to(this.id).emit('roundOver', { winnerId: winner ? winner.id : null });
+      
+      // 1. Mapeia os dados e ordena para definir as posições (ranking da partida)
+      const sortedPlayers = [...this.players.values()]
+        .filter(p => !p.disconnected)
+        .map(p => ({
+          id: p.id,
+          userId: p.userId,
+          username: p.username || 'Anônimo', // ← Agora repassa o username real
+          kills: p.kills,
+          deaths: p.deaths,
+          score: (p.kills * 10) - (p.deaths * 5),
+          color: p.color,
+          alive: p.alive
+        }))
+        .sort((a, b) => {
+          // Quem terminou vivo fica no topo
+          if (a.alive && !b.alive) return -1;
+          if (!a.alive && b.alive) return 1;
+          // Se ambos morreram/estão vivos, desempata pelo score
+          return b.score - a.score;
+        });
+
+      // 2. Aplica a propriedade 'position' exigida pelo seu scoreboard.js
+      sortedPlayers.forEach((p, index) => {
+        p.position = index + 1;
+      });
+
+      // 3. SALVAMENTO AUTOMÁTICO NO BANCO (Server-side)
+      // Varre os jogadores e atualiza a tabela player_stats do SQLite de forma segura
+      for (const p of sortedPlayers) {
+        if (p.userId) {
+          const amIWinner = winner ? (winner.id === p.id) : false;
+          db.updatePlayerStats(p.userId, {
+            won: amIWinner,
+            kills: p.kills,
+            deaths: p.deaths
+          }).catch(err => console.error(`Erro ao salvar dados do user ${p.userId}:`, err));
+        }
+      }
+      
+      // 4. Envia os dados perfeitamente mastigados para o frontend
+      io.to(this.id).emit('roundOver', { 
+        winnerId: winner ? winner.id : null,
+        players: sortedPlayers, // ← Contém os usernames e as positions ordenadas
+      });
       setTimeout(() => this.resetRound(), 5000);
     }
   }
@@ -425,29 +491,140 @@ class RoomState {
   }
 }
 
+// ─── REST API Routes ────────────────────────────────────────────────────────
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    const result = await auth.register(username, email, password);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const result = await auth.login(username, password);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Get user stats
+app.get('/api/stats', auth.authMiddleware, async (req, res) => {
+  try {
+    const stats = await db.getPlayerStats(req.userId);
+    const user = await db.getUserById(req.userId);
+    res.json({ ok: true, stats, user: { id: user.id, username: user.username } });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Get match history
+app.get('/api/history', auth.authMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const history = await db.getMatchHistory(req.userId, limit);
+    res.json({ ok: true, history });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Get global leaderboard
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const leaderboard = await db.getGlobalLeaderboard(limit);
+    res.json({ ok: true, leaderboard });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// End match and save stats
+app.post('/api/match-end', auth.authMiddleware, async (req, res) => {
+  try {
+    const { matchId, matchData } = req.body;
+    console.log('🔵 /api/match-end chamado');
+    console.log('   userId:', req.userId);
+    console.log('   matchData:', matchData);
+    
+    if (!matchData) {
+      return res.status(400).json({ ok: false, error: 'matchData ausente' });
+    }
+    
+    // matchData = { position, score, kills, deaths, survivalTime, won }
+    await db.updatePlayerStats(req.userId, matchData);
+    console.log('✓ Stats salvas para userId:', req.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('❌ Erro em /api/match-end:', err.message);
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── Socket.io Middleware ──────────────────────────────────────────────────
+io.use(auth.socketAuthMiddleware);
+
 // ─── Socket.io Handlers ──────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   let currentRoomId = null;
+  const userId = socket.userId;
+  let playerStats = { kills: 0, deaths: 0, score: 0, survivalTime: Date.now() };
 
-  socket.on('createRoom', (_, cb) => {
+  // Dentro de io.on('connection', (socket) => { ... })
+
+  socket.on('createRoom', async (_, cb) => { // ← Adicionado async
     let id;
     do { id = randId(); } while (rooms.has(id));
     const room = new RoomState(id);
     rooms.set(id, room);
     currentRoomId = id;
     socket.join(id);
-    const player = room.addPlayer(socket.id);
+
+    // Buscar o nome real do usuário no banco de dados
+    let username = 'Anônimo';
+    if (userId) {
+      try {
+        const user = await db.getUserById(userId);
+        if (user) username = user.username;
+      } catch (err) {
+        console.error('Erro ao buscar username:', err);
+      }
+    }
+
+    const player = room.addPlayer(socket.id, userId, username); // ← Passando o nome encontrado
+    playerStats.survivalTime = Date.now();
     cb({ ok: true, roomId: id, playerId: socket.id, color: player.color, map: room.map });
   });
 
-  socket.on('joinRoom', ({ roomId }, cb) => {
+  socket.on('joinRoom', async ({ roomId }, cb) => { // ← Adicionado async
     const room = rooms.get(roomId?.toUpperCase());
     if (!room) return cb({ ok: false, error: 'Sala não encontrada' });
     if ([...room.players.values()].filter(p => !p.disconnected).length >= MAX_PLAYERS)
       return cb({ ok: false, error: 'Sala cheia (máx 6)' });
     currentRoomId = roomId.toUpperCase();
     socket.join(currentRoomId);
-    const player = room.addPlayer(socket.id);
+
+    // Buscar o nome real do usuário no banco de dados
+    let username = 'Anônimo';
+    if (userId) {
+      try {
+        const user = await db.getUserById(userId);
+        if (user) username = user.username;
+      } catch (err) {
+        console.error('Erro ao buscar username:', err);
+      }
+    }
+
+    const player = room.addPlayer(socket.id, userId, username); // ← Passando o nome encontrado
+    playerStats.survivalTime = Date.now();
     cb({ ok: true, roomId: currentRoomId, playerId: socket.id, color: player.color, map: room.map });
   });
 

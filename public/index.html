@@ -10,10 +10,53 @@
 </head>
 <body>
 
+  <!-- ── AUTH SCREEN ─────────────────────────────────────────────────────── -->
+  <div id="screen-auth" class="screen auth-screen">
+    <div class="lobby-bg"></div>
+    <div class="auth-content">
+      <div class="logo-wrap">
+        <div class="logo-tank left">🔴</div>
+        <h1 class="logo">BATTLE<br><span>CITY</span></h1>
+        <div class="logo-tank right">🟡</div>
+      </div>
+      <p class="tagline">LOGIN & REGISTRO</p>
+
+      <div class="card">
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login">ENTRAR</button>
+          <button class="auth-tab" data-tab="register">REGISTRAR</button>
+        </div>
+
+        <!-- LOGIN TAB -->
+        <div id="tab-login" class="auth-tab-content active">
+          <input id="login-username" class="input-field" type="text" placeholder="Username" />
+          <input id="login-password" class="input-field" type="password" placeholder="Senha" />
+          <button id="btn-login" class="btn btn-primary">ENTRAR</button>
+        </div>
+
+        <!-- REGISTER TAB -->
+        <div id="tab-register" class="auth-tab-content">
+          <input id="register-username" class="input-field" type="text" placeholder="Username" />
+          <input id="register-email" class="input-field" type="email" placeholder="Email (opcional)" />
+          <input id="register-password" class="input-field" type="password" placeholder="Senha" />
+          <input id="register-password2" class="input-field" type="password" placeholder="Confirmar Senha" />
+          <button id="btn-register" class="btn btn-primary">REGISTRAR</button>
+        </div>
+
+        <p id="auth-error-msg" class="error-msg"></p>
+      </div>
+    </div>
+  </div>
+
   <!-- ── LOBBY ───────────────────────────────────────────────────────────── -->
-  <div id="screen-lobby" class="screen lobby-screen">
+  <div id="screen-lobby" class="screen lobby-screen" style="display:none">
     <div class="lobby-bg"></div>
     <div class="lobby-content">
+      <div class="lobby-top">
+        <span id="user-info" class="user-info">👤 <span id="username-display">Player</span></span>
+        <button id="btn-logout" class="btn-logout">SAIR</button>
+      </div>
+
       <div class="logo-wrap">
         <div class="logo-tank left">🔴</div>
         <h1 class="logo">BATTLE<br><span>CITY</span></h1>
@@ -31,7 +74,23 @@
                  maxlength="4" placeholder="CÓDIGO" spellcheck="false" autocomplete="off" />
           <button id="btn-join" class="btn btn-secondary">ENTRAR</button>
         </div>
-        <p id="error-msg" class="error-msg"></p>
+        <p id="lobby-error-msg" class="error-msg"></p>
+      </div>
+
+      <div class="stats-panel">
+        <div class="stat-item">
+          <span class="stat-label">Vitórias:</span>
+          <span id="stat-wins" class="stat-value">0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Taxa Win:</span>
+          <span id="stat-winrate" class="stat-value">0%</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Eliminations:</span>
+          <span id="stat-kills" class="stat-value">0</span>
+        </div>
+        <button id="btn-leaderboard" class="btn btn-secondary">🏆 RANKING</button>
       </div>
 
       <div class="legend">
@@ -65,7 +124,7 @@
     </div>
   </div>
 
-  <!-- ── OVERLAY (round over) ────────────────────────────────────────────── -->
+  <!-- ── OVERLAY (round over / scoreboard) ────────────────────────────── -->
   <div id="screen-overlay" class="screen overlay-screen" style="display:none">
     <div class="overlay-box">
       <p class="overlay-msg">🏆 VOCÊ VENCEU!</p>
@@ -73,7 +132,27 @@
     </div>
   </div>
 
+  <!-- ── SCOREBOARD ──────────────────────────────────────────────────── -->
+  <div id="screen-scoreboard" class="screen scoreboard-screen" style="display:none">
+    <div class="scoreboard-box">
+      <h2>📊 RESULTADO DA PARTIDA</h2>
+      <div id="scoreboard-content" class="scoreboard-content"></div>
+      <button id="btn-back-lobby" class="btn btn-primary">VOLTAR AO LOBBY</button>
+    </div>
+  </div>
+
+  <!-- ── LEADERBOARD ─────────────────────────────────────────────────── -->
+  <div id="screen-leaderboard" class="screen leaderboard-screen" style="display:none">
+    <div class="leaderboard-box">
+      <h2>🏆 RANKING GLOBAL</h2>
+      <div id="leaderboard-content" class="leaderboard-content"></div>
+      <button id="btn-back-from-lb" class="btn btn-primary">VOLTAR</button>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
+  <script src="auth.js"></script>
+  <script src="scoreboard.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
