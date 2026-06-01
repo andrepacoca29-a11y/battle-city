@@ -154,12 +154,13 @@ class RoomState {
     clearTimeout(this.powerupTimer);
   }
 
-  addPlayer(socketId, userId) {
+  addPlayer(socketId, userId, username) {
     const idx   = this.players.size % MAX_PLAYERS;
     const spawn = SPAWNS[idx];
     const p = {
       id:         socketId,
       userId:     userId,
+      username:   username,
       x:          spawn.x,
       y:          spawn.y,
       dir:        spawn.dir,
@@ -408,21 +409,49 @@ class RoomState {
       this.roundOver = true;
       const winner = alive[0] || null;
       
-      // Enviar dados de todos os jogadores no ranking
-      const playersData = [...this.players.values()]
+      // 1. Mapeia os dados e ordena para definir as posições (ranking da partida)
+      const sortedPlayers = [...this.players.values()]
         .filter(p => !p.disconnected)
         .map(p => ({
           id: p.id,
           userId: p.userId,
+          username: p.username || 'Anônimo', // ← Agora repassa o username real
           kills: p.kills,
           deaths: p.deaths,
           score: (p.kills * 10) - (p.deaths * 5),
           color: p.color,
-        }));
+          alive: p.alive
+        }))
+        .sort((a, b) => {
+          // Quem terminou vivo fica no topo
+          if (a.alive && !b.alive) return -1;
+          if (!a.alive && b.alive) return 1;
+          // Se ambos morreram/estão vivos, desempata pelo score
+          return b.score - a.score;
+        });
+
+      // 2. Aplica a propriedade 'position' exigida pelo seu scoreboard.js
+      sortedPlayers.forEach((p, index) => {
+        p.position = index + 1;
+      });
+
+      // 3. SALVAMENTO AUTOMÁTICO NO BANCO (Server-side)
+      // Varre os jogadores e atualiza a tabela player_stats do SQLite de forma segura
+      for (const p of sortedPlayers) {
+        if (p.userId) {
+          const amIWinner = winner ? (winner.id === p.id) : false;
+          db.updatePlayerStats(p.userId, {
+            won: amIWinner,
+            kills: p.kills,
+            deaths: p.deaths
+          }).catch(err => console.error(`Erro ao salvar dados do user ${p.userId}:`, err));
+        }
+      }
       
+      // 4. Envia os dados perfeitamente mastigados para o frontend
       io.to(this.id).emit('roundOver', { 
         winnerId: winner ? winner.id : null,
-        players: playersData,
+        players: sortedPlayers, // ← Contém os usernames e as positions ordenadas
       });
       setTimeout(() => this.resetRound(), 5000);
     }
@@ -549,26 +578,52 @@ io.on('connection', (socket) => {
   const userId = socket.userId;
   let playerStats = { kills: 0, deaths: 0, score: 0, survivalTime: Date.now() };
 
-  socket.on('createRoom', (_, cb) => {
+  // Dentro de io.on('connection', (socket) => { ... })
+
+  socket.on('createRoom', async (_, cb) => { // ← Adicionado async
     let id;
     do { id = randId(); } while (rooms.has(id));
     const room = new RoomState(id);
     rooms.set(id, room);
     currentRoomId = id;
     socket.join(id);
-    const player = room.addPlayer(socket.id, userId);
+
+    // Buscar o nome real do usuário no banco de dados
+    let username = 'Anônimo';
+    if (userId) {
+      try {
+        const user = await db.getUserById(userId);
+        if (user) username = user.username;
+      } catch (err) {
+        console.error('Erro ao buscar username:', err);
+      }
+    }
+
+    const player = room.addPlayer(socket.id, userId, username); // ← Passando o nome encontrado
     playerStats.survivalTime = Date.now();
     cb({ ok: true, roomId: id, playerId: socket.id, color: player.color, map: room.map });
   });
 
-  socket.on('joinRoom', ({ roomId }, cb) => {
+  socket.on('joinRoom', async ({ roomId }, cb) => { // ← Adicionado async
     const room = rooms.get(roomId?.toUpperCase());
     if (!room) return cb({ ok: false, error: 'Sala não encontrada' });
     if ([...room.players.values()].filter(p => !p.disconnected).length >= MAX_PLAYERS)
       return cb({ ok: false, error: 'Sala cheia (máx 6)' });
     currentRoomId = roomId.toUpperCase();
     socket.join(currentRoomId);
-    const player = room.addPlayer(socket.id, userId);
+
+    // Buscar o nome real do usuário no banco de dados
+    let username = 'Anônimo';
+    if (userId) {
+      try {
+        const user = await db.getUserById(userId);
+        if (user) username = user.username;
+      } catch (err) {
+        console.error('Erro ao buscar username:', err);
+      }
+    }
+
+    const player = room.addPlayer(socket.id, userId, username); // ← Passando o nome encontrado
     playerStats.survivalTime = Date.now();
     cb({ ok: true, roomId: currentRoomId, playerId: socket.id, color: player.color, map: room.map });
   });

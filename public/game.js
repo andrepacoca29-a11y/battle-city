@@ -30,34 +30,39 @@ function setupSocketListeners() {
   });
 
   socket.on('roundOver', ({ winnerId, players }) => {
-    gameRunning = false;
-    const ranking = rankPlayers(players, winnerId);
+    gameRunning = false; //
+    
+    // Como o servidor já envia a lista ordenada por posição, 
+    // podemos usar a ordem que veio diretamente do servidor!
+    const ranking = players; 
     
     // Encontrar meus dados no array de players
-    const myPlayerData = players.find(p => p.id === myId);
+    const myPlayerData = players.find(p => p.id === myId); //
     if (myPlayerData) {
-      myMatchData.kills = myPlayerData.kills || 0;
-      myMatchData.deaths = myPlayerData.deaths || 0;
-      myMatchData.score = myPlayerData.score || 0;
+      myMatchData.kills = myPlayerData.kills || 0; //
+      myMatchData.deaths = myPlayerData.deaths || 0; //
+      myMatchData.score = myPlayerData.score || 0; //
     }
     
-    myMatchData.survived = true;
-    myMatchData.won = winnerId === myId;
-    myMatchData.position = ranking.findIndex(p => p.id === myId) + 1;
+    myMatchData.survived = true; //
+    myMatchData.won = winnerId === myId; //
+    myMatchData.position = ranking.findIndex(p => p.id === myId) + 1; //
     
     const scoreboard = {
-      winnerId,
-      players: ranking.map(p => ({
-        id: p.id,
-        username: currentUsername && p.id === myId ? currentUsername : `Player_${p.color}`,
-        score: p.score || 0,
-        kills: p.kills || 0,
-        deaths: p.deaths || 0,
-        position: ranking.indexOf(p) + 1,
+      winnerId, //
+      players: ranking.map((p, index) => ({
+        id: p.id, //
+        // CORREÇÃO AQUI: Usa o username real enviado pelo servidor, se não houver, usa o fallback de cor
+        username: p.username || `Player_${p.color}`, 
+        score: p.score || 0, //
+        kills: p.kills || 0, //
+        deaths: p.deaths || 0, //
+        position: p.position || (index + 1), // Usa a posição calculada pelo servidor
       })),
     };
 
-    setTimeout(() => showScoreboard(scoreboard), 500);
+    // Já está chamando a função aqui, não precisa mudar!
+    setTimeout(() => showScoreboard(scoreboard), 500); //
   });
 
   socket.on('roundReset', ({ map: newMap }) => {
