@@ -27,6 +27,9 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+
+// Obter porta do environment ou usar padrão
+const PORT = process.env.PORT || 3000;
 // Inicializar banco de dados
 db.initDB().catch(err => {
   console.error('Erro ao inicializar DB:', err);
