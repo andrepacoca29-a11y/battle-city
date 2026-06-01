@@ -654,4 +654,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => console.log(`Battle City server on :${PORT}`));
+server.listen(PORT, () => console.log(`Battle City server on :${PORT}`));
