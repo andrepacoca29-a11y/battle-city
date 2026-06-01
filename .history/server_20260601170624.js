@@ -22,15 +22,20 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check endpoint
+// Health check para Vercel
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.status(200).json({ status: 'ok' });
 });
 
 // Inicializar banco de dados
 db.initDB().catch(err => {
   console.error('Erro ao inicializar DB:', err);
   process.exit(1);
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
