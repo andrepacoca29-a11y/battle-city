@@ -104,3 +104,4 @@ Mobile: D-pad e botão de fogo na tela.
 | 🛡 | Escudo (imune a dano) | 10s |
 | ❤ | Reparo (+1 HP) | Instantâneo |
 | ⚡ | +Balas (até 3 simultâneas) | 10s |
+# Battle_City
