@@ -14,7 +14,7 @@ const io = new Server(server, {
   cors: { origin: '*' },
   pingInterval: 5000,
   pingTimeout: 10000,
-  transports: ['websocket'],
+  transports: ['polling', 'websocket'],
 });
 
 // Middleware
